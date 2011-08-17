@@ -1,37 +1,23 @@
 <?php
-
 /**
  * Journey Plotter
  *
+ * index.php
  *
- *
- *
- **/
+ * Handles the organisational logic
+ */
 
-// set path of database file 
-$db = $_SERVER['DOCUMENT_ROOT']."/../plotter.db"; 
+/**
+ * Include the Library files
+ */
+require_once($_SERVER['DOCUMENT_ROOT']."/lib/view.php"); 
+require_once($_SERVER['DOCUMENT_ROOT']."/lib/db.php"); 
 
-// open database file 
-$handle = sqlite_open($db) or die("Could not open database"); 
+$journeys = plotterDb::getJourneys();
 
-// generate query string 
-$query = "SELECT * FROM journeys"; 
+/**
+ * Render the View
+ */
+$plotterView = new plotterView($journeys);
+$plotterView->renderPage();
 
-// execute query 
-$result = sqlite_query($handle, $query) or die("Error in query: 
-".sqlite_error_string(sqlite_last_error($handle))); 
-
-// if rows exist 
-if (sqlite_num_rows($result) > 0) { 
-    // get each row as an array 
-    // print values 
-    echo "<table cellpadding=10 border=1>"; 
-    while($row = sqlite_fetch_array($result)) { 
-        echo "<tr>"; 
-        echo "<td>".$row[0]."</td>"; 
-        echo "<td>".$row[1]."</td>"; 
-        echo "<td>".$row[2]."</td>"; 
-        echo "</tr>"; 
-    } 
-    echo "</table>"; 
-} 
