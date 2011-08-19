@@ -10,8 +10,12 @@
 /**
  * Include the Library files
  */
-require_once($_SERVER['DOCUMENT_ROOT']."../lib/view.php"); 
-require_once($_SERVER['DOCUMENT_ROOT']."../lib/db.php"); 
+define('LIB_PATH', dirname($_SERVER['DOCUMENT_ROOT'] . "../lib/"));
+
+require_once(LIB_PATH . "view.php"); 
+require_once(LIB_PATH . "views/index.php"); 
+require_once(LIB_PATH . "views/journeys.php"); 
+require_once(LIB_PATH . "db.php"); 
 
 /**
  * Get the DB
@@ -22,14 +26,12 @@ $journeys = $db->getJourneys();
 /**
  * Render the View
  */
-$view = new plotterView($journeys);
-$view->renderPage();
-
-switch (HttpRequest::getUrl()) {
-case '/':
-
-case '/ajax-endpoint':
-
-
-
+switch ($_SERVER['REQUEST_URI']) {
+    case '/journeys/all':
+        $view = new journeysView($journeys);
+        break;
+    case '/':
+    default:
+        $view = new indexView();
 }
+$view->renderPage();
