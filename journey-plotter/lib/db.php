@@ -10,22 +10,28 @@
 
 class plotterDb
 {
-    $db;
+    protected $db;
+    protected $handle;
 
     public function __construct()
     {
-        $db = $_SERVER['DOCUMENT_ROOT']."/../plotter.db"; 
-        $handle = sqlite_open($db) or die("Could not open database"); 
+        $this->db = $_SERVER['DOCUMENT_ROOT']."/../plotter.db"; 
+        $this->handle = sqlite_open($this->db) or die("Could not open database"); 
+
+    }
+
+    public function getJourneys()
+    {
 
         $query = "SELECT * FROM journeys"; 
-        $result = sqlite_query($handle, $query) or die("Error in query: 
-            ".sqlite_error_string(sqlite_last_error($handle))); 
+        $result = sqlite_query($this->handle, $query) or die("Error in query: 
+            ".sqlite_error_string(sqlite_last_error($this->handle))); 
 
         $journeys = array();
 
         if (sqlite_num_rows($result) > 0) { 
             while($row = sqlite_fetch_array($result)) { 
-                $journeys[][ = $row;
+                $journeys[] = $row;
             } 
         } 
     }
