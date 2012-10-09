@@ -1,0 +1,8 @@
+PHP Dojo
+========
+
+_Small, useless PHP scripts for fun + profit!_
+
+This repository contains my PHP tests, quizzes, failed attempts, etc.
+
+It is probably of no interest to you.
