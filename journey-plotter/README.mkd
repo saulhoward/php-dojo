@@ -1,5 +1,7 @@
 # Journey Plotter
 
+NB. This is unfinished work!
+
 1. Run the DB setup script, from the root directory
 
         ./scripts/setupDB.sh

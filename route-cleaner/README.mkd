@@ -1,0 +1,7 @@
+Route Cleaner
+=============
+
+This is a PHP script to 'clean' a route of points, by removing
+potentially false positives.
+
+It is meant to be run from the command line.
