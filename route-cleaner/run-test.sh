@@ -1,2 +1,2 @@
 #!/bin/bash
-php ./cleaner.php -i points.csv -o cleaned-points.csv
+php ./route-cleaner.php -i points.csv -c cleaned-points.csv

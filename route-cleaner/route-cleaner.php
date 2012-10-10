@@ -9,27 +9,67 @@
  * this script will write a 'cleaned' route to the output file location 
  * provided.
  *
- * A cleaned route is one that has had suspicious points removed.
+ * A cleaned route is one that has had potentially erroneous points removed.
  *
+ * Possible outputs are:
+ *
+ *   * An HTML file, with the points plotted on a Google Map (will 
+ *     require an internet connection to view).
+ *   * A CSV file, in the same format as above
+ * 
  * Params:
  *
- *  -i  Input CSV file location.
- *  -o  Output file location (file will be created if it doesn't exist).
+ *  -i  Input CSV file location (required).
+ *  -w  Output HTML file location (file will be created if it doesn't exist).
+ *  -c  Output CSV file location (file will be created if it doesn't exist).
+ *  -h  Help message.
  *
  * @author Saul <saul@saulhoward.com>
  */
 
 // Get the flags
-$opts = getopt('i:o:');
+$opts = getopt('hi:c:w:');
+if (isset($opts['h'])) {
+    echo <<<TXT
+Route Cleaner
+-------------
+
+Given a CSV of a route (lat,lon,timestamp), this will remove potentially 
+erroneous points.
+
+Usage: 
+
+    php route-cleaner.php -i [INPUT_CSV] -w [OUTPUT_HTML]
+
+    php route-cleaner.php -i [INPUT_CSV] -c [OUTPUT_CSV]
+
+Params:
+
+ -i  Input CSV file location (required).
+ -w  HTML output file location (file will be created if it doesn't exist).
+ -c  CSV output file location (file will be created if it doesn't exist).
+ -h  This help message.
+
+@author Saul <saul@saulhoward.com>
+TXT;
+
+    exit(0);
+} 
+
 if (isset($opts['i'])) {
     $inputFile = $opts['i'];
 } else {
     die('No input file provided.' . "\n");
 }
-if (isset($opts['o'])) {
-    $outputFile = $opts['o'];
-} else {
-    die('no output file location provided.' . "\n");
+
+if (isset($opts['c'])) {
+    $outputCSV = $opts['c'];
+} 
+if (isset($opts['w'])) {
+    $outputHTML = $opts['w'];
+}
+if (!isset($outputHTML) && !isset($outputCSV)) {
+    die('no output file location provided (CSV or HTML).' . "\n");
 }
 
 // Create the route
@@ -48,24 +88,40 @@ if (($handle = fopen($inputFile, "r")) !== FALSE) {
     die('File ' . $inputFile . ' not found.' . "\n");
 }
 
-// --
-
-$dirtyRoute = clone $route;
+// Clean the route
+if (isset($outputHTML)) {
+    $dirtyRoute = clone $route;
+}
 $cleanedRoute = geographyHelper::cleanRoute($route);
 
-$htmlOutput = TRUE;
-if ($htmlOutput) {
-
+// And output it.
+if (isset($outputHTML)) {
     $html = htmlHelper::createRouteMap($cleanedRoute, $dirtyRoute);
-
-    file_put_contents(
-        '/srv/www/hailo/codetest/public/index.html',
+    $success = file_put_contents(
+        $outputHTML,
         $html
     );
-
+    if ($success === FALSE) {
+        die('Unable to write to file ' . $outputHTML . '.' . "\n");
+    }
 }
-
+if (isset($outputCSV)) {
+    if (($handle = fopen($outputCSV, "w")) !== FALSE) {
+        //print_r($outputCSV);die;
+        foreach ($cleanedRoute->getPoints() as $point) {
+            fputcsv($handle, array(
+                $point->lat,
+                $point->lon,
+                $point->timestamp
+            ));
+        }
+        fclose($handle);
+    } else {
+        die('Unable to write to file ' . $outputCSV . '.' . "\n");
+    }
+}
 exit(0);
+
 
 // --
 
@@ -88,8 +144,10 @@ class geographyHelper
      *   * the time difference between this point and its predecessor
      *
      * We're looking for points which have gone a large distance in a 
-     * short time....
+     * short time. Ie, outliers in the set.
      *
+     * @param route $route Dirty Route
+     * @return route Clean Route
      */
     public static function cleanRoute(
         route $route
@@ -162,21 +220,51 @@ class geographyHelper
 
     /**
      * Distance between two points (lat,lon) in degrees
+     *
+     * @param point $point1
+     * @param point $point2
      */
     public static function distance(
-        point $pointOne,
-        point $pointTwo
+        point $point1,
+        point $point2
     ) 
     {
-        $theta = $pointOne->lon - $pointTwo->lon;
-        $dist = sin(deg2rad($pointOne->lat)) 
-            * sin(deg2rad($pointTwo->lat))
-            + cos(deg2rad($pointOne->lat)) 
-            * cos(deg2rad($pointTwo->lat))
+        $theta = $point1->lon - $point2->lon;
+        $dist = sin(deg2rad($point1->lat)) 
+            * sin(deg2rad($point2->lat))
+            + cos(deg2rad($point1->lat)) 
+            * cos(deg2rad($point2->lat))
             * cos(deg2rad($theta));
         $dist = acos($dist);
         $dist = rad2deg($dist);
         return $dist * 60;
+    }
+
+    /**
+     * Get the center point of a route.
+     *
+     * Simplistic method: averages the lat and lon of all points.
+     *
+     * @return point $point
+     */
+    public static function getCenterPoint(
+        route $route
+    )
+    {
+        $totLat = 0;
+        $totLon = 0;
+        $totTS = 0;
+        foreach ($route->getPoints() as $point) {
+            $totLat += $point->lat;
+            $totLon += $point->lon;
+            $totTS += $point->timestamp;
+        }
+        $count = count($route->getPoints());
+        $meanLat = $totLat / $count;
+        $meanLon = $totLon / $count;
+        $meanTS = $totTS / $count;
+
+        return new point($meanLat, $meanLon, $meanTS);
     }
 }
 
@@ -192,6 +280,8 @@ class htmlHelper
      * Returns HTML for a route map,
      * comparing two routes.
      *
+     * @param route $route1
+     * @param route $route2
      */
     public static function createRouteMap(
         route $route1,
@@ -210,11 +300,12 @@ class htmlHelper
             $jsData .= '[' . $point->lat . ',' . $point->lon . '],';
         }
         $jsData .= '];' . "\n";
-        $centerPoint = $route1->getCenterPoint();
+        $centerPoint = geographyHelper::getCenterPoint($route1);
         $jsData .= 'center = [' . $centerPoint->lat . ',' . $centerPoint->lon . '];';
 
-        // Add the JS to the HTML
+        // Add the JS & CSS to the HTML
         $html = self::htmlTemplate;
+        $html = str_replace('<% CSS %>', self::css, $html);
         $html = str_replace('<% JS_LIB %>', self::js, $html);
         $html = str_replace('<% JS_DATA %>', $jsData, $html);
         return $html;
@@ -233,75 +324,9 @@ class htmlHelper
         <script type="text/javascript">
             google.load("maps", "3",{"other_params":"sensor=false"});
         </script>
-<style>
-body {
-    background: #45484d;
-    font-family: "Helvetica Neue", "Helvetica", Arial, sans;
-    color: white;
-    height: 100%;
-    padding: 0;
-    margin: 0;
-}
-html {
-    height: 100% ;
-}
-header {
-    background-color: #151515;
-    border-bottom: 5px solid #FDB424;
-    padding: 10px;
-    top: 0;
-    width: 100%;
-    -webkit-box-shadow: 0px 0px 10px 5px rgba(0, 0, 0, 0.4);
-    box-shadow: 0px 0px 10px 5px rgba(0, 0, 0, 0.4);
-}
-header h1 {
-    line-height: 0;
-    color: #f5f5f5;
-}
-#map {
-    width: 100%;
-    height: 100%;
-    min-height: 600px;
-}
-#controls {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    padding: 10px;
-    -webkit-border-radius: 15px;
-    border-radius: 15px;
-    background: #45484d; /* Old browsers */
-    background: -moz-linear-gradient(top, #45484d 0%, #000000 100%); /* FF3.6+ */
-    background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#45484d), color-stop(100%,#000000)); /* Chrome,Safari4+ */
-    background: -webkit-linear-gradient(top, #45484d 0%,#000000 100%); /* Chrome10+,Safari5.1+ */
-    background: -o-linear-gradient(top, #45484d 0%,#000000 100%); /* Opera 11.10+ */
-    background: -ms-linear-gradient(top, #45484d 0%,#000000 100%); /* IE10+ */
-    background: linear-gradient(to bottom, #45484d 0%,#000000 100%); /* W3C */
-    filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#45484d', endColorstr='#000000',GradientType=0 ); /* IE6-9 */
-    -webkit-box-shadow: 0px 0px 10px 5px rgba(0, 0, 0, 0.4);
-    box-shadow: 0px 0px 10px 5px rgba(0, 0, 0, 0.4);
-    border: 3px solid #FDB424;
-    }
-#controls ul {
-    text-align: center;
-    margin: 0 auto;
-    padding: 10px;
-}
-#controls ul li {
-    list-style-type: none;
-    line-height: 2em;
-}
-#controls a {
-    text-decoration: none;
-    font-size: 1.4em;
-}
-#controls a#route1Ctl {
-    color: #40FF40;
-}
-#controls a#route2Ctl {
-    color: #FF4040;
-}
-</style>
+        <style>
+            <% CSS %>
+        </style>
     </head>
     <body>
         <header>
@@ -309,10 +334,13 @@ header h1 {
         </header>
         <div id="map"></div>
         <div id="controls">
-        <ul>
-            <li><a href="#" id="route1Ctl">Clean Route</a></li>
-            <li><a href="#" id="route2Ctl">Dirty Route</a></li>
-        </ul>
+            <p class="instructions">
+            Click to toggle route display:
+            </p>
+            <ul>
+                <li><a href="#" id="route1Ctl">Clean Route</a></li>
+                <li><a href="#" id="route2Ctl">Dirty Route</a></li>
+            </ul>
         </div>
         <script>
             <% JS_DATA %>
@@ -334,9 +362,14 @@ function drawMap(
 {
     var latlng = new google.maps.LatLng(center[0], center[1]);
     var myOptions = {
-      zoom: 14,
-      center: latlng,
-      mapTypeId: google.maps.MapTypeId.ROADMAP
+        zoom: 14,
+        center: latlng,
+        mapTypeId: google.maps.MapTypeId.ROADMAP,
+        panControl: false,
+        zoomControl: true,
+        zoomControlOptions: {
+            position: google.maps.ControlPosition.LEFT_CENTER
+        }
     };
     map = new google.maps.Map(document.getElementById("map"), myOptions);
     return map;
@@ -375,8 +408,8 @@ var map = drawMap('map', center);
 var route1Ctl = document.getElementById('route1Ctl')
 var route2Ctl = document.getElementById('route2Ctl')
 
-route1Plot = plotRoute(map, route1, '#40FF40');
 route2Plot = plotRoute(map, route2, '#FF4040');
+route1Plot = plotRoute(map, route1, '#4040FF');
 toggleVisible(route2Plot);
 
 route1Ctl.onclick = function() {toggleVisible(route1Plot); return false;}
@@ -385,10 +418,103 @@ route2Ctl.onclick = function() {toggleVisible(route2Plot); return false;}
 
 JS;
 
+    /**
+     * CSS for the output page
+     */
+    const css = <<<CSS
+body {
+    background: #45484d;
+    font-family: "Helvetica Neue", "Helvetica", Arial, sans;
+    color: white;
+    height: 100%;
+    padding: 0;
+    margin: 0;
+}
+html {
+    height: 100% ;
+}
+header {
+    position: absolute;
+    z-index: 10;
+    background: #45484d; /* Old browsers */
+    background: -moz-linear-gradient(top, #45484d 0%, #000000 100%); /* FF3.6+ */
+    background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#45484d), color-stop(100%,#000000)); /* Chrome,Safari4+ */
+    background: -webkit-linear-gradient(top, #45484d 0%,#000000 100%); /* Chrome10+,Safari5.1+ */
+    background: -o-linear-gradient(top, #45484d 0%,#000000 100%); /* Opera 11.10+ */
+    background: -ms-linear-gradient(top, #45484d 0%,#000000 100%); /* IE10+ */
+    background: linear-gradient(to bottom, #45484d 0%,#000000 100%); /* W3C */
+    border-bottom: 5px solid #FDB424;
+    padding: 10px;
+    top: 0;
+    width: 100%;
+    -webkit-box-shadow: 0px 0px 10px 5px rgba(0, 0, 0, 0.4);
+    box-shadow: 0px 0px 10px 5px rgba(0, 0, 0, 0.4);
+}
+header h1 {
+    line-height: 0;
+    font-size: 1.4em;
+    color: #ccc;
+}
+header h1 span {
+    color: #f5f5f5;
+}
+#map {
+    width: 100%;
+    height: 100%;
+}
+#controls {
+    position: absolute;
+    top: 100px;
+    right: 20px;
+    padding: 10px;
+    -webkit-border-radius: 15px;
+    border-radius: 15px;
+    background: #45484d; /* Old browsers */
+    background: -moz-linear-gradient(top, #45484d 0%, #000000 100%); /* FF3.6+ */
+    background: -webkit-gradient(linear, left top, left bottom, color-stop(0%,#45484d), color-stop(100%,#000000)); /* Chrome,Safari4+ */
+    background: -webkit-linear-gradient(top, #45484d 0%,#000000 100%); /* Chrome10+,Safari5.1+ */
+    background: -o-linear-gradient(top, #45484d 0%,#000000 100%); /* Opera 11.10+ */
+    background: -ms-linear-gradient(top, #45484d 0%,#000000 100%); /* IE10+ */
+    background: linear-gradient(to bottom, #45484d 0%,#000000 100%); /* W3C */
+    filter: progid:DXImageTransform.Microsoft.gradient( startColorstr='#45484d', endColorstr='#000000',GradientType=0 ); /* IE6-9 */
+    -webkit-box-shadow: 0px 0px 10px 5px rgba(0, 0, 0, 0.4);
+    box-shadow: 0px 0px 10px 5px rgba(0, 0, 0, 0.4);
+    border: 3px solid #FDB424;
+    }
+#controls ul {
+    text-align: center;
+    margin: 0 auto;
+    padding: 10px;
+}
+#controls ul li {
+    list-style-type: none;
+    line-height: 2em;
+}
+#controls p.instructions {
+    color: #f5f5f5;
+    text-align: center;
+    padding-bottom: 0;
+    margin-bottom: 0;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+#controls a {
+    text-decoration: none;
+    font-size: 1.4em;
+}
+#controls a#route1Ctl {
+    color: #4040FF;
+}
+#controls a#route2Ctl {
+    color: #FF4040;
+}
+CSS;
+
 }
 
+// --
 
-// -- DATA CLASSES (point, route)
+/* DATA CLASSES (point, route) */
 
 /**
  * Route class.
@@ -412,6 +538,12 @@ class route
      */
     private $points;
 
+    /**
+     * Add a point to the route
+     * This will sort the points to maintain order
+     *
+     * @param point $point
+     */
     public function addPoint(
         point $point
     )
@@ -423,36 +555,46 @@ class route
         ksort($this->points);
     }
 
+    /**
+     * Get all points
+     *
+     * @return array points
+     */
     public function getPoints()
     {
         return $this->points;
     }
 
+    /**
+     * Remove a point from the route
+     *
+     * @param point $point
+     */
     public function removePoint($point)
     {
         unset($this->points[$point->timestamp]);
     }
 
+    /**
+     * Get the first point
+     *
+     * @return point $point
+     */
     public function getStartPoint()
     {
         $p = $this->points;
         return reset($p);
     }
 
+    /**
+     * Get the last point
+     *
+     * @return point $point
+     */
     public function getEndPoint()
     {
         $p = $this->points;
         return end($p);
-    }
-
-    public function getCenterPoint()
-    {
-        $p = $this->points;
-        $center = round(count($this->points) / 2);
-        for ($i = 0; $i < $center; $i++) {
-            next($p);
-        }
-        return next($p);
     }
 }
 
@@ -463,10 +605,28 @@ class route
  */
 class point
 {
+    /**
+     * @var $lat Latitude
+     */
     public $lat;
+
+    /**
+     * @var $lon Longitude
+     */
     public $lon;
+
+    /**
+     * @var $timestamp Timestamp
+     */
     public $timestamp;
 
+    /**
+     * Constructor
+     *
+     * @param int lat
+     * @param int lon
+     * @param int timestamp
+     */
     public function __construct(
         $lat,
         $lon,
@@ -478,5 +638,4 @@ class point
         $this->timestamp = $timestamp;
     }
 }
-
 
